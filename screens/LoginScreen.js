@@ -1,13 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Image, TextInput, Text, Pressable,
-  StyleSheet, ScrollView, Alert, Dimensions
+  StyleSheet, ScrollView, Alert
 } from 'react-native';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
+} from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 
-
-// Esquema de validación con Yup
 const LoginSchema = Yup.object().shape({
   email: Yup.string()
     .email('Email inválido')
@@ -17,12 +21,34 @@ const LoginSchema = Yup.object().shape({
     .required('La contraseña es requerida'),
 });
 
-const LoginScreen = () => {
+const LoginScreen = ({ navigation }) => {
+  const [isRegistro, setIsRegistro] = useState(false);
+
   const formik = useFormik({
-    initialValues: { email: '', password: '' },
+    initialValues: { nombre: '', email: '', password: '' },
     validationSchema: LoginSchema,
-    onSubmit: (values) => {
-      Alert.alert('Éxito', `Iniciando sesión con: ${values.email}`);
+    onSubmit: async (values) => {
+      try {
+        if (isRegistro) {
+          const cred = await createUserWithEmailAndPassword(auth, values.email, values.password);
+          await updateProfile(cred.user, { displayName: values.nombre });
+          Alert.alert('¡Cuenta creada!', `Bienvenido, ${values.nombre}`);
+          setIsRegistro(false);
+          formik.resetForm();
+        } else {
+          const cred = await signInWithEmailAndPassword(auth, values.email, values.password);
+          const nombre = cred.user.displayName || cred.user.email;
+          navigation.navigate('DashboardScreen', { nombre });
+        }
+      } catch (error) {
+        const mensajes = {
+          'auth/user-not-found':       'No existe una cuenta con ese email.',
+          'auth/wrong-password':       'Contraseña incorrecta.',
+          'auth/email-already-in-use': 'Ese email ya está registrado.',
+          'auth/invalid-email':        'Email inválido.',
+        };
+        Alert.alert('Error', mensajes[error.code] || error.message);
+      }
     },
   });
 
@@ -30,7 +56,6 @@ const LoginScreen = () => {
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.container}>
 
-        {/* 1. Imagen de cabecera */}
         <View style={styles.logoContainer}>
           <Image
             source={require('../assets/Logoapp.png')}
@@ -39,10 +64,21 @@ const LoginScreen = () => {
           />
         </View>
 
-        {/* 2. Tarjeta contenedora */}
         <View style={styles.card}>
 
-          {/* 3. Inputs controlados con Formik */}
+          {isRegistro && (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Nombre completo"
+                placeholderTextColor="#aaa"
+                value={formik.values.nombre}
+                onChangeText={formik.handleChange('nombre')}
+                onBlur={formik.handleBlur('nombre')}
+              />
+            </>
+          )}
+
           <TextInput
             style={[styles.input, formik.touched.email && formik.errors.email && styles.inputError]}
             placeholder="Email"
@@ -70,15 +106,21 @@ const LoginScreen = () => {
             <Text style={styles.errorText}>{formik.errors.password}</Text>
           )}
 
-          {/* 4. Botón Pressable con estilo dinámico */}
           <Pressable
             onPress={formik.handleSubmit}
-            style={({ pressed }) => [
-              styles.button,
-              pressed && styles.buttonPressed,
-            ]}
+            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           >
-            <Text style={styles.buttonText}>Ingresar</Text>
+            <Text style={styles.buttonText}>
+              {isRegistro ? 'Registrarse' : 'Ingresar'}
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={() => { setIsRegistro(!isRegistro); formik.resetForm(); }}>
+            <Text style={styles.toggleText}>
+              {isRegistro
+                ? '¿Ya tienes cuenta? Inicia sesión'
+                : '¿No tienes cuenta? Regístrate'}
+            </Text>
           </Pressable>
 
         </View>
@@ -88,70 +130,24 @@ const LoginScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    flexGrow: 1,
-  },
-  container: {
-    flex: 1,
-    flexDirection: 'column',
-    backgroundColor: '#687072',
-  },
-  logoContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 30,
-  },
-  logo: {
-    width: 180,
-    height: 180,
-  },
-  // Tarjeta contenedora con sombra
+  scrollContent: { flexGrow: 1 },
+  container: { flex: 1, backgroundColor: '#687072' },
+  logoContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 30 },
+  logo: { width: 180, height: 180 },
   card: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 30,
-    elevation: 10,           // Android
-    shadowColor: '#000',     // iOS
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    flex: 1, backgroundColor: '#fff',
+    borderTopLeftRadius: 30, borderTopRightRadius: 30,
+    padding: 30, elevation: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1, shadowRadius: 6,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
-    fontSize: 16,
-    color: '#333',
-  },
-  inputError: {
-    borderColor: '#e74c3c',
-  },
-  errorText: {
-    color: '#e74c3c',
-    fontSize: 12,
-    marginBottom: 10,
-    marginLeft: 4,
-  },
-  button: {
-    backgroundColor: '#687072',
-    borderRadius: 10,
-    padding: 15,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonPressed: {
-    backgroundColor: '#4a5254',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 10, padding: 12, marginBottom: 6, fontSize: 16, color: '#333' },
+  inputError: { borderColor: '#e74c3c' },
+  errorText: { color: '#e74c3c', fontSize: 12, marginBottom: 10, marginLeft: 4 },
+  button: { backgroundColor: '#687072', borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 10 },
+  buttonPressed: { backgroundColor: '#4a5254' },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  toggleText: { textAlign: 'center', marginTop: 16, color: '#687072', fontWeight: '600' },
 });
 
 export default LoginScreen;
